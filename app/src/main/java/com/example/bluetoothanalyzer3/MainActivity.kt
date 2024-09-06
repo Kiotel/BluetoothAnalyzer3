@@ -85,6 +85,7 @@ fun AppScreen(
 	var isReady by remember { mutableStateOf(true) }
 	val context = LocalContext.current
 
+
 	Column(modifier = modifier) {
 		LaunchedEffect(counter) {
 			if (isReady) {
@@ -117,10 +118,10 @@ fun AppScreen(
 			}
 		}
 		LazyColumn {
-			var i = 1
-			items(scannedDevices.sortedByDescending { it.rsii }) { device ->
+			items(scannedDevices) { device ->
+				viewModel.sortFoundDevices()
 				Row {
-					Text(text = "${i++}: $device")
+					Text(text = "${scannedDevices.indexOf(device)}: $device")
 				}
 			}
 		}

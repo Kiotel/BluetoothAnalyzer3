@@ -3,7 +3,11 @@ package com.example.bluetoothanalyzer3
 import android.annotation.SuppressLint
 import android.util.Log
 import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,23 +41,60 @@ class BluetoothViewModel : ViewModel() {
 	val counter: StateFlow<Int>
 		get() = _counter.asStateFlow()
 
+	fun sortFoundDevices() {
+		_scannedDevices.value = _scannedDevices.value.sortedByDescending { it.rsii }
+	}
+
+	private var timeSinceLastDevice: Int = 0
+
+	private suspend fun startCountingTime() = coroutineScope {
+		launch {
+			try {
+				delay(1000)
+				timeSinceLastDevice++
+			} catch (e: CancellationException) {
+				timeSinceLastDevice = 0
+			} finally {
+				timeSinceLastDevice = 0
+			}
+		}
+
+	}
+
 	@SuppressLint("MissingPermission")
 	fun scanForDevices(
 		ble: BLE,
 		onError: (Int) -> () -> Unit,
+		isContinued: Boolean = false,
 	) {
-		_scannedDevices.value = emptyList()
+		var timer: Job = GlobalScope.launch { }
+		if (!isContinued) {
+			_scannedDevices.value = emptyList()
+		}
 		_isScanning.value = true
-		val devices = emptyList<BLEDevice>().toMutableList()
 		ble.scanAsync(duration = 30000,      /* This is optional, if you want to update your interface in realtime */
 			onDiscover = { device ->
-				_scannedDevices.value += device
-				Log.d("Found", _scannedDevices.value.toString())
+				if (!isAlreadyFound(device)) {
+					_scannedDevices.value += device
+					timer.cancel()
+					timer = GlobalScope.launch {
+						startCountingTime()
+					}
+					Log.d("Found", _scannedDevices.value.toString())
+				}
 			},
 
 			onFinish = { foundDevices ->
-				_scannedDevices.value = foundDevices.asList()
-				_isScanning.value = false
+				if (timeSinceLastDevice > 5 && !isContinued) {
+					foundDevices.forEach { device ->
+						if (!isAlreadyFound(device)) {
+							_scannedDevices.value += device
+						}
+					}
+					_isScanning.value = false
+				} else {
+					scanForDevices(ble, onError, isContinued = true)
+				}
 			}, onError = { errorCode ->
 				onError(errorCode)
 			})
@@ -64,6 +105,13 @@ class BluetoothViewModel : ViewModel() {
 			_isBluetoothEnabled.value = active
 			onReady()
 		}
+	}
+
+	private fun isAlreadyFound(device: BLEDevice): Boolean {
+		_scannedDevices.value.forEach { scannedDevice ->
+			if (scannedDevice.macAddress == device.macAddress) return true
+		}
+		return false
 	}
 
 	@SuppressLint("MissingPermission")
