@@ -1,15 +1,8 @@
 package com.example.bluetoothanalyzer3
 
 import android.annotation.SuppressLint
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
 import android.util.Log
-import android.widget.Toast
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,8 +10,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import quevedo.soares.leandro.blemadeeasy.BLE
+import quevedo.soares.leandro.blemadeeasy.models.BLEDevice
 
 class BluetoothViewModel : ViewModel() {
+	private val _scannedDevices = MutableStateFlow<List<BLEDevice>>(emptyList())
+	val scannedDevices: StateFlow<List<BLEDevice>>
+		get() = _scannedDevices.asStateFlow()
+
 	private val _isPermissionGranted = MutableStateFlow<Boolean>(false)
 	val isPermissionGranted: StateFlow<Boolean>
 		get() = _isPermissionGranted.asStateFlow()
@@ -31,41 +29,63 @@ class BluetoothViewModel : ViewModel() {
 	val isShouldShowRational: StateFlow<Boolean>
 		get() = _isShouldShowRational.asStateFlow()
 
+	private val _isScanning = MutableStateFlow<Boolean>(false)
+	val isScanning: StateFlow<Boolean>
+		get() = _isScanning.asStateFlow()
+
 	private val _counter = MutableStateFlow<Int>(0)
 	val counter: StateFlow<Int>
 		get() = _counter.asStateFlow()
 
-	fun checkBluetoothState(ble: BLE, onDisabled: () -> Unit) {
+	@SuppressLint("MissingPermission")
+	fun scanForDevices(
+		ble: BLE,
+		onError: (Int) -> () -> Unit,
+	) {
+		_scannedDevices.value = emptyList()
+		_isScanning.value = true
+		val devices = emptyList<BLEDevice>().toMutableList()
+		ble.scanAsync(duration = 30000,      /* This is optional, if you want to update your interface in realtime */
+			onDiscover = { device ->
+				_scannedDevices.value += device
+				Log.d("Found", _scannedDevices.value.toString())
+			},
+
+			onFinish = { foundDevices ->
+				_scannedDevices.value = foundDevices.asList()
+				_isScanning.value = false
+			}, onError = { errorCode ->
+				onError(errorCode)
+			})
+	}
+
+	fun checkBluetoothState(ble: BLE, onReady: () -> Unit) {
 		ble.verifyBluetoothAdapterStateAsync { active ->
-			if (active) {
-				_isBluetoothEnabled.value = true
-			} else {
-				onDisabled()
-			}
+			_isBluetoothEnabled.value = active
+			onReady()
 		}
 	}
 
 	@SuppressLint("MissingPermission")
-	fun checkBluetoothPermissions(ble: BLE) {
-		if (counter.value >= 2) return
-		_counter.value++
+	fun checkBluetoothPermissions(ble: BLE, onReady: () -> Unit) {
 		ble.verifyPermissionsAsync(rationaleRequestCallback = { next ->
 			// Include your code to show an Alert or UI explaining why the permissions are required
 			// Calling the function bellow if the user agrees to give the permissions
 			next()
 		}, callback = { granted ->
+			_counter.value++
 			if (granted) {
 				_isPermissionGranted.value = true
 				_isShouldShowRational.value = false
 			} else {
 				// Include your code to show an Alert or UI indicating that the permissions are required
+
+				_isPermissionGranted.value = false
 				_isShouldShowRational.value = true
-				GlobalScope.launch {
-					delay(3000)
-					checkBluetoothPermissions(ble)
-				}
 				Log.e("bluetooth", "permission denied")
 			}
+			onReady()
 		})
 	}
 }
+
