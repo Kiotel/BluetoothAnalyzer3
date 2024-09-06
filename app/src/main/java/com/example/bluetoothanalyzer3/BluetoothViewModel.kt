@@ -72,7 +72,7 @@ class BluetoothViewModel : ViewModel() {
 			_scannedDevices.value = emptyList()
 		}
 		_isScanning.value = true
-		ble.scanAsync(duration = 30000,      /* This is optional, if you want to update your interface in realtime */
+		ble.scanAsync(duration = 300000,      /* This is optional, if you want to update your interface in realtime */
 			onDiscover = { device ->
 				if (!isAlreadyFound(device)) {
 					_scannedDevices.value += device
@@ -81,6 +81,8 @@ class BluetoothViewModel : ViewModel() {
 						startCountingTime()
 					}
 					Log.d("Found", _scannedDevices.value.toString())
+				} else {
+					findAndReplaceRssi(device)
 				}
 			},
 
@@ -89,6 +91,8 @@ class BluetoothViewModel : ViewModel() {
 					foundDevices.forEach { device ->
 						if (!isAlreadyFound(device)) {
 							_scannedDevices.value += device
+						} else {
+							findAndReplaceRssi(device)
 						}
 					}
 					_isScanning.value = false
@@ -109,9 +113,19 @@ class BluetoothViewModel : ViewModel() {
 
 	private fun isAlreadyFound(device: BLEDevice): Boolean {
 		_scannedDevices.value.forEach { scannedDevice ->
-			if (scannedDevice.macAddress == device.macAddress) return true
+			var f = true // нужно чтобы, если устройство поменяло mac-адресс, то оно не дублировалось
+			if (device.name != "") f = scannedDevice.name == device.name
+			if (scannedDevice.macAddress == device.macAddress && f) return true
 		}
 		return false
+	}
+
+	private fun findAndReplaceRssi(device: BLEDevice) {
+		_scannedDevices.value.forEach { scannedDevice ->
+			if (scannedDevice.macAddress == device.macAddress) {
+				scannedDevice.rsii = device.rsii
+			}
+		}
 	}
 
 	@SuppressLint("MissingPermission")
